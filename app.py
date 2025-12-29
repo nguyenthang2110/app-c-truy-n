@@ -247,8 +247,6 @@ st.components.v1.html(f"""
 
   const fullTextOriginal = b64ToUtf8("{text_b64}") || "";
   const RATE_STEP = 0.1;
-  const MAX_CHUNK_LEN = 900;  // iOS Safari hay lỗi với đoạn TTS quá dài
-  const MIN_CHUNK_LEN = 400;
   const STORE_KEY = "doc-reader-voice-settings";
   let fullText = fullTextOriginal;
   editor.textContent = fullTextOriginal || "(Chưa có nội dung)";
@@ -466,15 +464,11 @@ st.components.v1.html(f"""
     return (voices||[]).find(v => v.name===name) || null;
   }}
 
-  function speakFrom(offset, preferredLen) {{
+  function speakFrom(offset) {{
     window.speechSynthesis.cancel();
     if (!fullText || offset >= fullText.length) return;
 
-    const chunkOffset = offset;
-    const limit = preferredLen || MAX_CHUNK_LEN;
-    const chunkLen = Math.max(MIN_CHUNK_LEN, Math.min(limit, MAX_CHUNK_LEN, fullText.length - chunkOffset));
-    const chunkEnd = Math.min(fullText.length, chunkOffset + chunkLen);
-    const chunk = fullText.substring(chunkOffset, chunkEnd);
+    const chunk = fullText.substring(offset);
     if (!chunk) return;
 
     const u = new SpeechSynthesisUtterance(chunk);
@@ -488,49 +482,33 @@ st.components.v1.html(f"""
       statusEl.textContent = "Đang đọc…";
       btnResume.style.display = "none";
       paused = false; speaking = true;
-      lastStartOffset = chunkOffset;
+      lastStartOffset = offset;
 
-      const s = wordStartFrom(chunkOffset);
-      const e = wordEndFrom(chunkOffset);
+      const s = wordStartFrom(offset);
+      const e = wordEndFrom(offset);
       paintHighlight(s, Math.max(e, s+1));
 
       avgCps = BASE_CPS * (parseFloat(rateInp.value) || 1.0);
-      lastBoundaryAbsOffset = chunkOffset;
+      lastBoundaryAbsOffset = offset;
       lastBoundaryTime = performance.now();
 
-      startHeartbeat(chunkOffset);
+      startHeartbeat(offset);
     }};
     u.onend = () => {{
-      speaking = false;
-      stopHeartbeat();
-      if (paused) {{
-        statusEl.textContent = "Đã dừng – có thể tiếp tục";
-        btnResume.style.display = "inline-block";
-        return;
-      }}
-      if (chunkEnd < fullText.length) {{
-        speakFrom(chunkEnd);
-        return;
-      }}
       statusEl.textContent = "Đã kết thúc / đã dừng";
       btnResume.style.display = "none";
-    }};
-    u.onerror = () => {{
       speaking = false;
       stopHeartbeat();
-      const nextLen = Math.max(MIN_CHUNK_LEN, Math.floor(chunkLen / 2));
-      if (nextLen < chunkLen) {{
-        statusEl.textContent = "Lỗi khi đọc – đang rút gọn đoạn…";
-        setTimeout(() => speakFrom(chunkOffset, nextLen), 60);
-        return;
-      }}
-      statusEl.textContent = "Lỗi khi đọc (thử reload hoặc rút ngắn văn bản)";
-      btnResume.style.display = "inline-block";
+    }};
+    u.onerror = () => {{
+      statusEl.textContent = "Lỗi khi đọc";
+      speaking = false;
+      stopHeartbeat();
     }};
     u.onboundary = (e) => {{
       if (typeof e.charIndex === "number") {{
         const now = performance.now();
-        const absPos = chunkOffset + e.charIndex;
+        const absPos = offset + e.charIndex;
 
         const dt = (now - lastBoundaryTime) / 1000.0;
         const dchars = Math.max(0, absPos - lastBoundaryAbsOffset);
